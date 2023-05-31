@@ -23,4 +23,8 @@ for i in range(len(image_path)):
     img_bgr = cv2.imread(os.path.join(root_dir, path_dict[i+1]))
     stim_arr[i] = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 stim_arr = stim_arr.astype('float32')
-f = h5py.File(os.path.join())
+
+f = h5py.File(os.path.join(resource_path, 'image.h5'), 'w')
+f.create_dataset('image', data = stim_arr)
+
+f.close()
