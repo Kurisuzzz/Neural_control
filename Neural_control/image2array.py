@@ -5,13 +5,16 @@ import numpy as np
 import h5py
 
 resource_path = 'D:/LZH/code/deep_learning/pytorch/'
-sys.path.append(resource_path)
-
-from pretrained_model import AlexNet
-
-resolution = 300
 pic_dir = './data/0_presented_images_800/'
 root_dir = os.path.join(resource_path, pic_dir)
+
+sys.path.append(resource_path)
+
+
+
+resolution = 300
+
+
 image_path = os.listdir(root_dir)
 path_dict = {}
 for j in image_path:
@@ -24,7 +27,7 @@ for i in range(len(image_path)):
     stim_arr[i] = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 stim_arr = stim_arr.astype('float32')
 
-f = h5py.File(os.path.join(resource_path, 'image.h5'), 'w')
+f = h5py.File(os.path.join(root_dir, 'image.h5'), 'w')
 f.create_dataset('image', data = stim_arr)
 
 f.close()
