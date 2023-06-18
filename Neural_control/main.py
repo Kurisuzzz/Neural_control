@@ -35,20 +35,26 @@ class MyDataset(Dataset):
     def __len__(self):
         return len(self.image)
 
-neural_matfile = './data/4_L82LL_V4_S03_D250_objects/stimuli/celldataS_80_CalmAn_75_Objects_16_800_80_50_88_62_trial_mean_normal.mat'
+neural_matfile = 'data/1_L76LM_V1_S18_D155_objects/celldataS_43_Objects_11_800_80_30_40_trial_mean_normal.mat'
 sequence_matfile = 'data/4_L82LL_V4_S03_D250_objects/stimuli/Random_id_80_2021_10_21.mat'
+
 
 id = h5py.File(os.path.join(resource_path, sequence_matfile), 'r')
 idx = np.array(id['sampleidlist21']).squeeze().astype('int') - 1
 idx, unique_idx = np.unique(idx, return_index=True)
 
 mat_file = h5py.File(os.path.join(resource_path, neural_matfile), 'r')
-neural_n = np.transpose(np.array(mat_file['celldataS']), (1, 2, 0)).astype('float16')
+neural_n = np.transpose(np.array(mat_file['celldataS']), (2, 1, 0)).astype('float16')
+print(neural_n.shape)
 
-#data_x_train = ...
+data_x_train = np.delete(neural_n[:800], idx, 0).mean(1)
+data_x_val = np.concatenate((neural_n[:800][idx], neural_n[800:880][unique_idx]), 1)
 #dataset_train = MyDataset(data_x_train, data_y_train)
 #dataset_val = MyDataset(data_x_val, data_y_val)
 
+print(data_x_train.shape, data_x_val.shape, neural_n[800:880][unique_idx].shape)
+
+exit(0)
 
 device = 'cuda:0'
 
