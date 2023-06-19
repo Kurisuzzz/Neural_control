@@ -43,47 +43,65 @@ id = h5py.File(os.path.join(resource_path, sequence_matfile), 'r')
 idx = np.array(id['sampleidlist21']).squeeze().astype('int') - 1
 idx, unique_idx = np.unique(idx, return_index=True)
 
+img = np.array(img_feature)
+
+
 mat_file = h5py.File(os.path.join(resource_path, neural_matfile), 'r')
 neural_n = np.transpose(np.array(mat_file['celldataS']), (2, 1, 0)).astype('float16')
-print(neural_n.shape)
+#print(neural_n.shape) (950, 11, 43)
 
-data_x_train = np.delete(neural_n[:800], idx, 0).mean(1)
-data_x_val = np.concatenate((neural_n[:800][idx], neural_n[800:880][unique_idx]), 1)
-#dataset_train = MyDataset(data_x_train, data_y_train)
-#dataset_val = MyDataset(data_x_val, data_y_val)
+ns_train = np.delete(neural_n[:800], idx, 0).mean(1)
+ns_val = np.concatenate((neural_n[:800][idx], neural_n[800:880][unique_idx]), 1)
 
-print(data_x_train.shape, data_x_val.shape, neural_n[800:880][unique_idx].shape)
+#print(idx, unique_idx)
+ft_train = np.delete(img[:800], idx, 0)
+ft_val = img[:800][idx]
 
-exit(0)
+print(ft_train.shape, ft_val.shape) #(725, 64, 55, 55), (75, 64, 55, 55)
+
+dataset_train = MyDataset(ft_train, ns_train)
+dataset_val = MyDataset(ft_val, ns_val)
 
 device = 'cuda:0'
 
-c = np.array((batch, ))
+batch = 16
+AlexNet_dict = {
+    'conv1': (64, 55, 55),
+    'conv2': (192, 27, 27),
+    'conv3': (384, 13, 13),
+    'conv4': (256, 13, 13),
+    'conv5': (256, 13, 13)
+}
+c = (batch, ) + AlexNet_dict[conv]
+num_neurons = neural_n.shape[2]
+channels = neural_n.shape[0]
+sz = c.get_shape()
+px_x_conv = int(sz[2])
+px_y_conv = int(sz[1])
+px_conv = px_x_conv * px_y_conv
+
+
 class conv_encoder(nn.Module):
-    def __init__(self, c):
+    def __init__(self, c, response):
         super(conv_encoder, self).__init__()
-        sz = c.get_shape()
-        px_x_conv = int(sz[2])
-        px_y_conv = int(sz[1])
-        px_conv = px_x_conv * px_y_conv
-        conv_flat = torch.reshape(c, [-1, px_conv, out_channels, 1])
         self.W_spatial = nn.Parameter(torch.Tensor(px_conv, num_neurons))
-        torch.nn.init.trunc_normal_(self.W_spatial, mean=0.0, std=0.01)
+        torch.nn.init.trunc_normal_(self.W_spatial, mean=0.0, std=0.001)
         
         self.W_features = nn.Parameter(torch.Tensor(channels, num_neurons))
-        torch.nn.init.trunc_normal_(self.W_features, mean=0.0, std=0.01)
+        torch.nn.init.trunc_normal_(self.W_features, mean=0.0, std=0.001)
         
         self.W_b = nn.Parameter(response)
 
-    def forward(self, x):   
-        W_spatial_flat = torch.reshape(self.W_spatial, [px_conv, 1, 1, num_neurosn])
+    def forward(self, x):
+        conv_flat = torch.reshape(x, [-1, px_conv, channels, 1])
+        W_spatial_flat = torch.reshape(self.W_spatial, [px_conv, 1, 1, num_neurons])
         h_spatial = torch.nn.functional.conv2d(conv_flat, W_spatial_flat)
         self.h_out = torch.sum(h_spatial * self.W_features, dim = (1, 2))
         
         return self.h_out + self.W_b
 
 
-
+lamd_s, lamd_d = 0.1, 0.1
 def L_e(y,pred):
     return torch.mean(torch.sqrt(torch.sum((y-pred)**2,dim=1)))
 
