@@ -51,7 +51,8 @@ neural_n = np.transpose(np.array(mat_file['celldataS']), (2, 1, 0)).astype('floa
 #print(neural_n.shape) (950, 11, 43)
 
 ns_train = np.delete(neural_n[:800], idx, 0).mean(1)
-ns_val = np.concatenate((neural_n[:800][idx], neural_n[800:880][unique_idx]), 1)
+ns_val = np.concatenate((neural_n[:800][idx], neural_n[800:880][unique_idx]), 1).mean(1)
+print("ns:", ns_train.shape, ns_val.shape)
 
 #print(idx, unique_idx)
 ft_train = np.delete(img[:800], idx, 0)
@@ -62,9 +63,13 @@ print(ft_train.shape, ft_val.shape) #(725, 64, 55, 55), (75, 64, 55, 55)
 dataset_train = MyDataset(ft_train, ns_train)
 dataset_val = MyDataset(ft_val, ns_val)
 
+batch = 16
+
+loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch)
+loader_val = torch.utils.data.DataLoader(dataset_val, batch_size=batch)
+
 device = 'cuda:0'
 
-batch = 16
 AlexNet_dict = {
     'conv1': (64, 55, 55),
     'conv2': (192, 27, 27),
@@ -74,15 +79,16 @@ AlexNet_dict = {
 }
 c = (batch, ) + AlexNet_dict[conv]
 num_neurons = neural_n.shape[2]
-channels = neural_n.shape[0]
-sz = c.get_shape()
+sz = c
+print(sz)
 px_x_conv = int(sz[2])
-px_y_conv = int(sz[1])
+px_y_conv = int(sz[3])
 px_conv = px_x_conv * px_y_conv
-
+channels = int(sz[1])
+print(px_x_conv, px_y_conv, px_conv, channels)
 
 class conv_encoder(nn.Module):
-    def __init__(self, c, response):
+    def __init__(self, response):
         super(conv_encoder, self).__init__()
         self.W_spatial = nn.Parameter(torch.Tensor(px_conv, num_neurons))
         torch.nn.init.trunc_normal_(self.W_spatial, mean=0.0, std=0.001)
@@ -90,11 +96,14 @@ class conv_encoder(nn.Module):
         self.W_features = nn.Parameter(torch.Tensor(channels, num_neurons))
         torch.nn.init.trunc_normal_(self.W_features, mean=0.0, std=0.001)
         
-        self.W_b = nn.Parameter(response)
+        self.W_b = nn.Parameter(response.mean(0))
 
     def forward(self, x):
+        print(x.shape)
         conv_flat = torch.reshape(x, [-1, px_conv, channels, 1])
         W_spatial_flat = torch.reshape(self.W_spatial, [px_conv, 1, 1, num_neurons])
+        conv_flat = conv_flat.permute(0, 3, 1, 2)
+        W_spatial_flat = W_spatial_flat.permute(3, 2, 0, 1)
         h_spatial = torch.nn.functional.conv2d(conv_flat, W_spatial_flat)
         self.h_out = torch.sum(h_spatial * self.W_features, dim = (1, 2))
         
@@ -157,9 +166,12 @@ def validate_model(encoder):
     explained_variance = metrics.explained_variance_score(y_true = y_true.detach().cpu().numpy(),y_pred = y_pred.detach().cpu().numpy())
     return explained_variance,sum(losses)/len(losses)
 
-lr = 1e-3
-encoder = conv_encoder(neurons, sizes, channels).to(device)
+lr, epoches = 1e-3, 100
+encoder = conv_encoder(torch.from_numpy(ns_train)).to(device)
 optimizer = torch.optim.Adam(encoder.parameters(), lr=lr)
+losses_train = []
+losses_val = []
+EVs = []
 
 for epoch in tqdm(range(epoches)):
     losses_train += train_model(encoder,optimizer)
