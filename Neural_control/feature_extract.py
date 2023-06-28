@@ -21,7 +21,12 @@ from pretrained_model import AlexNet
 f = h5py.File(os.path.join(root_dir, 'image.h5'), 'r')
 data = f['image'][:]
 
-alexnet = AlexNet.alexnet()
+
+device = 'cuda:0' # device where you put your data and models
+alexnet = AlexNet.alexnet().to(device)
+imagenet_mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(1, 3, 1, 1).to(device)
+imagenet_std =torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1, 3, 1, 1).to(device)
+transform = lambda x : (x - imagenet_mean) / imagenet_std
 
 stim_224 = np.zeros(shape = (data.shape[0], 3, 224, 224))
 
@@ -38,10 +43,11 @@ table = {
 }
 
 for i in tqdm(range(1, 6)):
-    print(i)
-    conv_arr = np.zeros(shape = ((data.shape[0],) + table[f'conv{i}']))
+    conv_arr = torch.zeros(size = ((data.shape[0],) + table[f'conv{i}']))
     for j in range(stim_224.shape[0]):
-        conv_arr[i] = alexnet(torch.tensor(np.expand_dims(stim_224[j], axis=0)).float(), f'conv{i}').detach().numpy()
+        img = torch.tensor(np.expand_dims(stim_224[j], axis=0)).float().to(device)
+        img = transform(img)
+        conv_arr[i] = alexnet(img, f'conv{i}')
     torch.save(conv_arr, os.path.join(root_dir, f"AlexNet_conv{i}_feature.pth"))
 '''
 alexnet = models.alexnet(pretrained = True)

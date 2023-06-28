@@ -20,7 +20,7 @@ img_path = './data/0_presented_images_800'
 sys.path.append(resource_path)
 
 conv = 'conv1'
-img_feature = torch.load(os.path.join(resource_path, img_path, f'AlexNet_{conv}_feature.pth'))
+img_feature = torch.load(os.path.join(resource_path, img_path, f'AlexNet_{conv}_feature.pth')).detach().numpy()
 
 class MyDataset(Dataset):
     def __init__(self, image, response):
@@ -36,7 +36,7 @@ class MyDataset(Dataset):
         return len(self.image)
 
 neural_matfile = 'data/1_L76LM_V1_S18_D155_objects/celldataS_43_Objects_11_800_80_30_40_trial_mean_normal.mat'
-sequence_matfile = 'data/4_L82LL_V4_S03_D250_objects/stimuli/Random_id_80_2021_10_21.mat'
+sequence_matfile = 'data/1_L76LM_V1_S18_D155_objects/stimuli/Random_id_80_2021_10_21.mat'
 
 
 id = h5py.File(os.path.join(resource_path, sequence_matfile), 'r')
@@ -77,6 +77,7 @@ AlexNet_dict = {
     'conv4': (256, 13, 13),
     'conv5': (256, 13, 13)
 }
+torch.autograd.set_detect_anomaly(True)
 c = (batch, ) + AlexNet_dict[conv]
 num_neurons = neural_n.shape[2]
 sz = c
@@ -99,21 +100,28 @@ class conv_encoder(nn.Module):
         self.W_b = nn.Parameter(response.mean(0))
 
     def forward(self, x):
-        print(x.shape)
+        x = x.float()
         conv_flat = torch.reshape(x, [-1, px_conv, channels, 1])
         W_spatial_flat = torch.reshape(self.W_spatial, [px_conv, 1, 1, num_neurons])
         conv_flat = conv_flat.permute(0, 3, 1, 2)
         W_spatial_flat = W_spatial_flat.permute(3, 2, 0, 1)
         h_spatial = torch.nn.functional.conv2d(conv_flat, W_spatial_flat)
+        h_spatial = h_spatial.permute(0, 2, 3, 1)
         self.h_out = torch.sum(h_spatial * self.W_features, dim = (1, 2))
         
         return self.h_out + self.W_b
 
-
+mse_loss = nn.MSELoss()
 lamd_s, lamd_d = 0.1, 0.1
 def L_e(y,pred):
-    return torch.mean(torch.sqrt(torch.sum((y-pred)**2,dim=1)))
+    print(y.shape, pred.shape)
+    return mse_loss(pred.float(), y.float())
 
+def l1_norm_regularizer(W):
+    return torch.mean(torch.sum(torch.abs(W), dim=0))
+
+def L2_norm_regularizer(W):
+    return torch.mean(torch.sum(W**2, dim=0))
 def L_2(W_spatial,W_features,lamd_s=lamd_s,lamd_d=lamd_d):
     return lamd_s * torch.sum(W_spatial**2) + lamd_d * torch.sum(W_features**2)
 
@@ -122,7 +130,7 @@ K = torch.tensor([
     [-1,4,-1],
     [0,-1,0]],dtype=torch.float).to(device)
 def L_laplace(W_spatial,lamd_s=lamd_s):
-    return lamd_s * torch.sum(F.conv2d(torch.unsqueeze(W_spatial,1),K.unsqueeze(0).unsqueeze(0))**2)
+    return 1
 
 def train_model(encoder, optimizer):
     losses = []
@@ -133,10 +141,10 @@ def train_model(encoder, optimizer):
         y = y.to(device)
         out = encoder(x)
         l_e = L_e(y,out)
-        l_2 = L_2(encoder.W_s,encoder.W_d)
-        l_l = L_laplace(encoder.W_s)
+        l_2 = L_2(encoder.W_spatial,encoder.W_features)
+        l_l = L_laplace(encoder.W_spatial)
 #         print(f'L_e = {l_e} , L_2 = {l_2} , L_l = {l_l}')
-        loss = L_e(y,out) + L_2(encoder.W_s,encoder.W_d) + L_laplace(encoder.W_s)
+        loss = L_e(y,out) + L_2(encoder.W_spatial,encoder.W_features) + L_laplace(encoder.W_spatial)
         loss.backward()
         optimizer.step()
         losses.append(loss.item())
@@ -155,18 +163,21 @@ def validate_model(encoder):
         out = encoder(x)
         y_pred.append(out)
         y_true.append(y)
-        l_e = L_e(y,out)
-        l_2 = L_2(encoder.W_s,encoder.W_d)
-        l_l = L_laplace(encoder.W_s)
-        print(f'L_e = {l_e} , L_2 = {l_2} , L_l = {l_l}')
-        loss = L_e(y,out) + L_2(encoder.W_s,encoder.W_d) + L_laplace(encoder.W_s)
+        l_e = L_e(y, out)
+        l_2 = L_2(encoder.W_spatial, encoder.W_features)
+        l_l = L_laplace(encoder.W_spatial)
+        #         print(f'L_e = {l_e} , L_2 = {l_2} , L_l = {l_l}')
+        loss = L_e(y, out) + L_2(encoder.W_spatial, encoder.W_features) + L_laplace(encoder.W_spatial)
         losses.append(loss.item())
     y_pred = torch.cat(y_pred)
     y_true = torch.cat(y_true)
+    print("pred: ", torch.isnan(y_pred).any())
+    print("true: ", torch.isnan(y_true).any())
+
     explained_variance = metrics.explained_variance_score(y_true = y_true.detach().cpu().numpy(),y_pred = y_pred.detach().cpu().numpy())
     return explained_variance,sum(losses)/len(losses)
 
-lr, epoches = 1e-3, 100
+lr, epoches = 1e-4, 100
 encoder = conv_encoder(torch.from_numpy(ns_train)).to(device)
 optimizer = torch.optim.Adam(encoder.parameters(), lr=lr)
 losses_train = []
